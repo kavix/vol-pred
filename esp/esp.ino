@@ -3,6 +3,8 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <EmonLib.h>
+#include <DHTesp.h>
 
 // Wi-Fi credentials
 const char* ssid     = "BlackY Pixel 7";
@@ -18,6 +20,30 @@ const char* serverPath = "/send";
 #define SCREEN_HEIGHT 32
 #define OLED_RESET    -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Sensor objects & measured values
+EnergyMonitor emon1;
+DHTesp dht;
+
+float Vrms = 0;
+float Irms = 0;
+float watt = 0;
+float tempC = 0;
+float humidity = 0;
+
+// add more detailed energy variables
+float current_Vrms = 0;
+float current_Irms = 0;      // in Amps
+float current_realP = 0;     // real power (W)
+float current_appP = 0;      // apparent power (VA)
+float current_pf = 1.0;      // power factor
+
+// Pin definitions
+#define SDA_PIN 22
+#define SCL_PIN 23
+#define DHTPIN 33
+#define VOLTAGE_PIN 34
+#define CURRENT_PIN 35
 
 String buildServerURL() {
 	// ...build full URL from parts...
@@ -50,11 +76,11 @@ void setup() {
 	Serial.begin(115200);
 	delay(100);
 
-	// seed RNG
+	// seed RNG (optional)
 	randomSeed((unsigned long)millis() ^ (unsigned long)ESP.getEfuseMac());
 
 	// init I2C on specified SDA/SCL pins for your board
-	Wire.begin(22, 23); // SDA=22, SCL=23
+	Wire.begin(SDA_PIN, SCL_PIN); // SDA=22, SCL=23
 
 	// init OLED
 	if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // 0x3C address
@@ -68,6 +94,15 @@ void setup() {
 		display.display();
 	}
 
+	// DHT Init
+	dht.setup(DHTPIN, DHTesp::DHT11);
+
+	// EmonLib Init (calibration values - adjust to your sensors)
+	emon1.voltage(VOLTAGE_PIN, 148.3, 1.7);  // VCAL, PhaseShift
+	emon1.current(CURRENT_PIN, 1160.0);      // ICAL
+
+	displayMsg("Energy Monitor", "Starting...");
+
 	connectWiFi();
 }
 
@@ -77,22 +112,28 @@ void loop() {
 		connectWiFi();
 	}
 
-	// generate requested readings:
-	// volt: float 200.0 .. 240.0 (one decimal)
-	float volt = random(2000, 2401) / 10.0; // 200.0 .. 240.0
+	// Read real sensor values
+	// calcVI(sample_count, timeout_ms) - adjust if you need faster/slower
+	emon1.calcVI(20, 2000);
 
-	// amps: float 0.20 .. 1.50 (two decimals) — adjust range if needed
-	float amps = random(20, 151) / 100.0; // 0.20 .. 1.50
+	// Use EmonLib outputs for accurate measurements
+	current_Vrms   = emon1.Vrms;
+	// convert to Amps as you requested (if your calibration returns mA)
+	current_Irms   = emon1.Irms / 1000.0;
+	current_realP  = emon1.realPower;
+	current_appP   = emon1.apparentPower;
+	current_pf     = emon1.powerFactor;
 
-	// watt: volt * amps (one decimal)
-	float watt = volt * amps;
+	// set commonly used vars for backward compatibility / display
+	Vrms = current_Vrms;
+	Irms = current_Irms;
+	watt = Vrms * Irms;;
 
-	// temperature: 20.0 .. 35.0 (one decimal)
-	float temperature = random(200, 351) / 10.0; // 20.0 .. 35.0
+	// Read DHT
+	tempC = dht.getTemperature();
+	humidity = dht.getHumidity();
 
-	// humidity: 30.0 .. 80.0 (one decimal)
-	float humidity = random(300, 801) / 10.0; // 30.0 .. 80.0
-
+	// Build and send JSON when connected
 	int httpResponseCode = -1;
 	String jsonData;
 	if (WiFi.status() == WL_CONNECTED) {
@@ -102,11 +143,11 @@ void loop() {
 		http.begin(url);
 		http.addHeader("Content-Type", "application/json");
 
-		// build JSON: {"volt":200.5,"amps":1.23,"watt":283.5,"temperature":29.4,"humidity":65.2}
-		jsonData = String("{\"volt\":") + String(volt, 1) +
-				   String(",\"amps\":") + String(amps, 2) +
-				   String(",\"watt\":") + String(watt, 1) +
-				   String(",\"temperature\":") + String(temperature, 1) +
+		// include real power and PF in JSON
+		jsonData = String("{\"volt\":") + String(Vrms, 1) +
+				   String(",\"amps\":") + String(Irms, 3) +
+				   String(",\"watt\":") + String(watt, 2) +
+				   String(",\"temperature\":") + String(tempC, 1) +
 				   String(",\"humidity\":") + String(humidity, 1) +
 				   String("}");
 
@@ -140,25 +181,36 @@ void loop() {
 	// line 2: show volt and amps
 	display.setCursor(0, 8);
 	display.print("V:");
-	display.print(volt, 1);
+	display.print(Vrms, 1);
 	display.print(" A:");
-	display.print(amps, 2);
+	display.print(Irms, 3);
 
-	// line 3: show watt and temp
+	// line 3: show real power and PF
 	display.setCursor(0, 16);
-	display.print("W:");
-	display.print(watt, 1);
-	display.print(" T:");
-	display.print(temperature, 1);
+	display.print("P:");
+	display.print(watt, 2);
+
 
 	// optional line 4: humidity and HTTP code
 	display.setCursor(0, 24);
-	display.print("H:");
-	display.print(humidity, 1);
-	display.print(" HTP:");
+	display.print("T:");
+	display.print(tempC, 1);
+	display.print(" H:");
+	display.print(humidity, 0);
+	display.print("% HTP:");
 	display.print(httpResponseCode);
 
 	display.display();
 
-	delay(5000); // wait 5s between readings
+	delay(1000); // wait 5s between readings
+}
+
+// small helper used during startup
+void displayMsg(String l1, String l2) {
+	display.clearDisplay();
+	display.setCursor(0, 0);
+	display.println(l1);
+	display.setCursor(0, 12);
+	display.println(l2);
+	display.display();
 }
