@@ -9,7 +9,11 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // MongoDB connection
-const mongoUri = process.env.MONGO_URI || "mongodb+srv://blacky:2419624196@voltura.vl2m5kl.mongodb.net/volData?retryWrites=true&w=majority";
+const mongoUri = process.env.MONGO_URI;
+if (!mongoUri) {
+    console.error("❌ MONGO_URI missing in .env");
+    process.exit(1);
+}
 mongoose.set('strictQuery', false);
 
 // Schema (kept because you requested to store one dataset)
