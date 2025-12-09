@@ -114,7 +114,8 @@ app.get('/history', async (req, res) => {
 
 // --- NEW API Endpoint for Prediction ---
 
-const PYTHON_EXECUTABLE = path.join(__dirname, '..', 'venv', 'bin', 'python3');
+// Use environment variable for Python path (Docker) or fallback to local venv
+const PYTHON_EXECUTABLE = process.env.PYTHON_EXECUTABLE || path.join(__dirname, '..', 'venv', 'bin', 'python3');
 const PREDICT_SCRIPT = path.join(__dirname, '..', 'ml_service', 'predict_future.py');
 
 app.get('/predict', (req, res) => {
