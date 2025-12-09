@@ -11,7 +11,7 @@ const char* ssid     = "BlackY Pixel 7";
 const char* password = "12345678";
 
 // Server address (fill these)
-const char* serverIP   = "10.170.182.10"; // <-- set this to your PC's IP visible to ESP
+const char* serverIP   = "10.164"; // <-- set this to your PC's IP visible to ESP
 const int   serverPort = 3000;
 const char* serverPath = "/send";
 

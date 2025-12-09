@@ -1,7 +1,8 @@
 {
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "retrain-model": "./venv/bin/python3 -m ml_service.train_and_save"
   },
   "dependencies": {
     "body-parser": "^2.2.1",
