@@ -1,88 +1,98 @@
-# ESP32 Energy Monitor
+# Energy Monitor System
 
-A compact ESP32-based energy monitor that reads voltage, current and environmental sensors, displays values on an SSD1306 OLED and sends JSON payloads to a HTTP server (local or remote).
+ESP32-based energy monitoring with cloud storage and easy WiFi setup.
 
-This project uses:
-- EmonLib for AC voltage/current measurements
-- DHTesp for temperature/humidity
-- Adafruit SSD1306 + GFX for OLED display
-- WiFi + HTTPClient to POST data to your server
+## Features
+- Real-time voltage, current, power, temperature & humidity monitoring
+- OLED display for live readings
+- WiFi configuration portal (no code editing needed!)
+- Cloud data storage (MongoDB + Vercel)
 
-Quick features
-- Vrms, Irms, real power (W), apparent power, power factor
-- Temperature and humidity from DHT11 (configurable)
-- OLED realtime display (128×32)
-- JSON POST to configurable server IP/port/path
+## Hardware Required
+- ESP32 DevKit
+- Voltage sensor (ZMPT101B) → Pin 34
+- Current sensor (SCT-013) → Pin 35
+- DHT11 sensor → Pin 33
+- SSD1306 OLED (I2C) → SDA: Pin 22, SCL: Pin 23
 
-Required libraries
-- EmonLib
-- DHTesp
-- Adafruit SSD1306
-- Adafruit GFX
-- ESP32 Arduino core (board package)
+## Quick Setup
 
-Hardware / pinout (as used in esp.ino)
-- ESP32 (generic)
-- OLED I2C: SDA = GPIO 22, SCL = GPIO 23 (address 0x3C)
-- DHT sensor: DHTPIN = GPIO 33 (DHT11 by default)
-- Voltage sensor input: VOLTAGE_PIN = GPIO 34 (analog)
-- Current sensor input: CURRENT_PIN = GPIO 35 (analog, CT sensor)
-- USB power for ESP32
+### 1. Cloud Setup
+1. Create free MongoDB Atlas cluster at [mongodb.com](https://www.mongodb.com/cloud/atlas)
+2. Get connection string: `mongodb+srv://user:pass@cluster.mongodb.net/dbname`
+3. Deploy to Vercel: `vercel --prod`
+4. Add `MONGO_URI` environment variable in Vercel dashboard
+5. Note your Vercel URL (e.g., `your-app.vercel.app`)
 
-Wiring notes
-- Connect CT (current transformer) and burden resistor per CT datasheet.
-- Use proper resistive divider / isolation for mains voltage sensing hardware — unsafe wiring can kill. If unsure, stop and consult an electrician.
-- Connect DHT data pin with a pull-up (4.7–10k) if needed.
+### 2. ESP32 Setup
+1. Install Arduino libraries:
+   - EmonLib
+   - DHTesp  
+   - Adafruit_GFX
+   - Adafruit_SSD1306
 
-Calibration
-- In code you will find emon1.voltage(VOLTAGE_PIN, VCAL, PHASE) and emon1.current(CURRENT_PIN, ICAL).
-- Use a reference meter to tune:
-  - VCAL: adjust until Vrms matches reference.
-  - ICAL: adjust until Irms matches reference.
-  - PHASE: adjust small phaseShift until power readings align.
-- Typical starting values in the sketch: VCAL = 148.3, ICAL = 1160.0, PHASE = 1.7 — these are example values and likely need tuning.
+2. Open `esp/esp.ino` and update server URL:
+   ```cpp
+   const char* serverURL = "http://your-app.vercel.app/send";
+   ```
 
-JSON payload sent to server
-- Example:
-  {"volt":230.5,"amps":1.234,"watt":284.12,"temperature":29.4,"humidity":65.2}
-- Fields:
-  - volt: Vrms (V)
-  - amps: Irms (A)
-  - watt: real power (W)
-  - temperature: °C
-  - humidity: %
+3. Upload to ESP32
 
-Server configuration
-- Set serverIP, serverPort and serverPath in esp.ino to point to your collector endpoint.
-- Endpoint should accept POST with JSON application/json.
+### 3. WiFi Configuration
+**First Time:**
+1. Power on ESP32
+2. Connect to WiFi: `EnergyMonitor-Setup` (password: `12345678`)
+3. Portal opens automatically (or visit `192.168.4.1`)
+4. Select your WiFi network and enter password
+5. Done! Auto-reconnects on every restart
 
-OLED layout (128×32)
-- Line 1: IP or connection status
-- Line 2: V:xxx.x  A:xx.xxx
-- Line 3: P:xxx.xx W
-- Line 4: T:xx.x H:xx% HTP:<HTTP code>
+**Change WiFi:**
+1. Connect to `EnergyMonitor-Setup` hotspot again
+2. Click "Forget WiFi" button
+3. Connect to new network
 
-Build & flash
-1. Install libraries listed above from Library Manager.
-2. Select your ESP32 board in Arduino IDE / PlatformIO.
-3. Compile and upload esp.ino.
-4. Open Serial Monitor at 115200 for logs.
+## How It Works
+- Device starts in "Setup Mode" if no WiFi saved
+- Creates hotspot with web portal
+- You configure WiFi through beautiful interface
+- Credentials saved automatically
+- 2-second sensor warm-up on boot (eliminates spikes)
+- Sends data to cloud every second
 
-Troubleshooting
-- No OLED output: check I2C wiring and address; try scanning I2C bus.
-- DHT shows NaN: try longer delay or replace sensor; DHT11 is slow.
-- Power readings wrong: recalibrate VCAL/ICAL/PHASE and confirm CT wiring.
-- WiFi fails: check SSID/password and ensure server is reachable from ESP network.
-- JSON not received: verify server IP/port/path and inspect HTTP response code printed on OLED and serial.
+## Troubleshooting
 
-Security & safety
-- This project interacts with mains AC — if you're not experienced with mains wiring do not attempt measurements; use an isolated/proper sensor module.
-- Secure the server endpoint if deploying outside a trusted network.
+**Can't connect to setup hotspot?**
+- Wait 15 seconds after power-on
+- Check OLED shows "Setup Mode"
 
-License
-- MIT — reuse and adapt freely. Give credit and be careful with mains wiring.
+**Portal doesn't open?**
+- Manually go to `192.168.4.1`
 
-Contributing
-- PRs and issue reports welcome. Add improved calibration helpers, averaging, data buffering or MQTT support.
+**WiFi won't connect?**
+- Verify 2.4GHz network (ESP32 doesn't support 5GHz)
+- Check password is correct
 
-Enjoy building — calibrate carefully and stay safe!
+**Readings look wrong?**
+- Wait for 2-second warm-up to complete
+- Check sensor connections
+
+**Data not saving?**
+- Verify server URL matches your Vercel deployment
+- Check HTTP response code on OLED (last line shows "R:200" if OK)
+
+## File Structure
+```
+├── api/send.js          # Vercel serverless function
+├── backend/server.js    # Local server (optional)
+├── esp/esp.ino         # ESP32 firmware
+└── vercel.json         # Vercel config
+```
+
+## Default Settings
+- Setup Hotspot: `EnergyMonitor-Setup` / `12345678`
+- Portal Address: `192.168.4.1`
+- Data interval: 5 second
+- Warm-up readings: 4 (2 seconds)
+
+## License
+MIT
