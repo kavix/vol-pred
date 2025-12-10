@@ -4,6 +4,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@influxdata/influxdb3-client": "^1.4.0",
     "body-parser": "^2.2.1",
     "cors": "^2.8.5",
     "express": "^5.1.0",
