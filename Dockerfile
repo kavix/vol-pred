@@ -33,3 +33,4 @@ ENV PYTHON_EXECUTABLE=python3
 
 # Start the application
 CMD ["npm", "start"]
+CMD ["node", "server.js"]

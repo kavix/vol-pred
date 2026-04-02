@@ -186,33 +186,10 @@ app.get('/predict', (req, res) => {
   });
 });
 
-// Connect and optionally insert ONE sample dataset if collection empty
-mongoose.connect(mongoUri)
-  .then(async () => {
-    console.log('Connected to MongoDB');
-
-    const count = await Sensor.countDocuments().catch(() => 0);
-    if (!count) {
-      const sampleData = new Sensor({
-        volt: 201.5,
-        amps: 1.23,
-        watt: 283.5,
-        temperature: 20.4,
-        humidity: 60.2
-      });
-      await sampleData.save();
-      console.log('Inserted ONE sample dataset:', sampleData);
-    } else {
-      console.log('Collection already contains documents, skipping sample insert.');
-    }
-  })
-  .catch(err => {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1);
-  });
-
 const port = process.env.PORT || 3000;
-// listen on all interfaces so other devices can reach this server
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Server running on port ${port} (listening on 0.0.0.0)`);
+  console.log(`Server listening on 0.0.0.0:${port}`);
+  mongoose.connect(mongoUri)
+    .then(() => console.log('MongoDB connected successfully.'))
+    .catch(err => console.error('MongoDB connection error:', err));
 });

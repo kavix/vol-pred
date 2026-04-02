@@ -16,3 +16,5 @@ npm-debug.log
 .env.local
 .env.development
 .env.production
+/node_modules
+/node_modules/qs
