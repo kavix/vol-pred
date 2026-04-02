@@ -2,24 +2,25 @@
 FROM python:3.11-slim
 
 # Install Node.js
-RUN apt-get update && apt-get install -y curl gnupg
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-RUN apt-get install -y nodejs
+RUN apt-get update && apt-get install -y curl gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files first (for caching)
-COPY package*.json ./
-COPY backend/package*.json ./backend/
-
-# Install Node dependencies
-RUN npm install
-RUN cd backend && npm install
-
-# Copy Python requirements and install
+# Install Python dependencies first for better caching
 COPY ml_service/requirements.txt ./ml_service/requirements.txt
-RUN pip install -r ml_service/requirements.txt
+RUN pip install --no-cache-dir -r ml_service/requirements.txt
+
+# Install Node.js dependencies
+COPY package.json ./
+COPY backend/package.json ./backend/
+# In case lock files exist
+COPY package-lock.json ./
+COPY backend/package-lock.json ./backend/
+RUN npm install
+RUN npm install --prefix backend
 
 # Copy the rest of the application code
 COPY . .

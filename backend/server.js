@@ -186,6 +186,67 @@ app.get('/predict', (req, res) => {
   });
 });
 
+// API endpoint to get ML predictions
+app.get('/predict', (req, res) => {
+  // Resolve the path to the Python executable and script relative to the project root
+  const pythonExecutable = process.env.PYTHON_EXECUTABLE || 'python3'; // Use 'python3' as a default
+  const scriptPath = path.resolve(__dirname, '..', 'ml_service', 'predict_future.py');
+
+  console.log(`Executing prediction script: ${pythonExecutable} ${scriptPath}`);
+
+  const pythonProcess = spawn(pythonExecutable, [scriptPath]);
+
+  let dataBuffer = '';
+  let errorBuffer = '';
+
+  pythonProcess.stdout.on('data', (data) => {
+    dataBuffer += data.toString();
+  });
+
+  pythonProcess.stderr.on('data', (data) => {
+    errorBuffer += data.toString();
+  });
+
+  pythonProcess.on('close', (code) => {
+    console.log(`Prediction script exited with code ${code}`);
+
+    if (code !== 0) {
+      console.error('Prediction script stderr:', errorBuffer);
+      // Check for a common error: script not found
+      if (errorBuffer.includes('No such file or directory')) {
+        return res.status(500).json({
+          error: 'Prediction script not found.',
+          details: `The server could not find the script at the expected path: ${scriptPath}. Please ensure the file exists and paths are correct.`
+        });
+      }
+      return res.status(500).json({
+        error: 'Failed to execute prediction script.',
+        details: errorBuffer
+      });
+    }
+
+    try {
+      const predictions = JSON.parse(dataBuffer);
+      res.json(predictions);
+    } catch (parseError) {
+      console.error('Error parsing prediction output:', parseError);
+      console.error('Raw output from script:', dataBuffer);
+      res.status(500).json({
+        error: 'Failed to parse prediction output.',
+        details: dataBuffer
+      });
+    }
+  });
+
+  pythonProcess.on('error', (err) => {
+    console.error('Failed to start prediction script process:', err);
+    res.status(500).json({
+      error: 'Failed to start the prediction script process.',
+      details: err.message
+    });
+  });
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server listening on 0.0.0.0:${port}`);
