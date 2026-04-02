@@ -1,5 +1,4 @@
 # Use a base image that has both Node.js and Python
-# A popular choice is to start with Python and install Node, or vice versa.
 FROM python:3.11-slim
 
 # Install Node.js
@@ -16,16 +15,11 @@ COPY backend/package*.json ./backend/
 
 # Install Node dependencies
 RUN npm install
-# We also need to install backend specific dependencies if they aren't in the root package.json
-# Based on your structure, you have a root package.json that runs server.js which requires backend/server.js
-# But backend/ has its own package.json. Let's make sure those are installed.
 RUN cd backend && npm install
 
 # Copy Python requirements and install
-# We don't have a requirements.txt yet, so we'll create one or install manually in the dockerfile
-# Ideally, we should generate a requirements.txt
-COPY ml_service/ ./ml_service/
-RUN pip install pandas scikit-learn pymongo joblib python-dotenv
+COPY ml_service/requirements.txt ./ml_service/requirements.txt
+RUN pip install -r ml_service/requirements.txt
 
 # Copy the rest of the application code
 COPY . .
@@ -33,7 +27,7 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 3000
 
-# Define environment variables (These should be overridden by the deployment platform secrets)
+# Define environment variables
 ENV PORT=3000
 ENV PYTHON_EXECUTABLE=python3
 
