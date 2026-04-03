@@ -6,6 +6,7 @@
 
 # Python
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.joblib
@@ -18,3 +19,5 @@ npm-debug.log
 .env.production
 /node_modules
 /node_modules/qs
+/backend/node_modules
+/backend/node_modules/@mongodb-js

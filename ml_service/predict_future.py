@@ -17,66 +17,98 @@ except ImportError:
 LAG_COUNT = 3
 TARGETS = ['watt', 'temperature', 'humidity']
 
+
+def resolve_collection_name(db, preferred: str) -> str:
+    """Best-effort resolution of collection name across common casing/pluralization variants."""
+    try:
+        existing = db.list_collection_names()
+    except Exception:
+        return preferred
+
+    candidates = []
+    for name in [
+        preferred,
+        preferred.lower(),
+        f"{preferred}s",
+        f"{preferred.lower()}s",
+    ]:
+        if name not in candidates:
+            candidates.append(name)
+
+    exact = [name for name in candidates if name in existing]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        best_name = exact[0]
+        best_count = -1
+        for name in exact:
+            try:
+                count = db[name].estimated_document_count()
+            except Exception:
+                count = 0
+            if count > best_count:
+                best_count = count
+                best_name = name
+        return best_name
+
+    preferred_lower = preferred.lower()
+    for name in existing:
+        if name.lower() == preferred_lower:
+            return name
+    for name in existing:
+        if name.lower() == f"{preferred_lower}s":
+            return name
+
+    return preferred
+
 def get_latest_data_points(uri, collection_name, target, count):
     """Fetches the last 'count' of the target variable from MongoDB."""
+    client = None
     try:
         client = MongoClient(uri)
         db = client.get_database()
-        collection = db[collection_name]
-        
-        # Fetch the 'count' most recent records (sorted descending by time)
-        data = list(collection.find({}, {target: 1, 'time': 1}).sort('time', -1).limit(count))
-        
-        if len(data) < count: return None 
+        resolved_name = resolve_collection_name(db, collection_name)
+        collection = db[resolved_name]
 
-        # Extract values and reverse to match lagged feature order (Lag_3, Lag_2, Lag_1)
-        # Data comes in [Latest, Previous, Pre-Previous]
-        # We need [Pre-Previous, Previous, Latest] to match Lag_3, Lag_2, Lag_1 logic?
-        # Wait, if we predict t using t-1, t-2, t-3.
-        # The model was trained with:
-        # Target: t
-        # Features: Lag_1 (t-1), Lag_2 (t-2), Lag_3 (t-3)
-        # So for prediction of T_future, we need T_current (as Lag_1), T_current-1 (as Lag_2), T_current-2 (as Lag_3).
-        # The query returns [T_current, T_current-1, T_current-2].
-        # So latest_values[0] is T_current (Lag_1).
-        # latest_values[1] is T_current-1 (Lag_2).
-        # latest_values[2] is T_current-2 (Lag_3).
-        
-        # The training script does:
-        # df_ts[f'{target}_lag_{i}'] = df_ts[target].shift(i)
-        # So Lag_1 is the previous row.
-        
-        # If we have [T_current, T_current-1, T_current-2]
-        # We want to map them to columns: watt_lag_1, watt_lag_2, watt_lag_3
-        # watt_lag_1 = T_current
-        # watt_lag_2 = T_current-1
-        # watt_lag_3 = T_current-2
-        
-        latest_values = [doc[target] for doc in data] # [T_current, T_current-1, T_current-2]
-        
-        # Create DataFrame with correct column names
-        # Columns should be ['watt_lag_1', 'watt_lag_2', 'watt_lag_3']
-        # Values should be [T_current, T_current-1, T_current-2]
-        
+        # Fetch the 'count' most recent records that actually contain this target field.
+        data = list(
+            collection.find(
+                {target: {"$exists": True, "$ne": None}},
+                {target: 1, 'time': 1},
+            )
+            .sort('time', -1)
+            .limit(count)
+        )
+
+        if len(data) < count:
+            return None
+
+        # Query returns [T_current, T_current-1, T_current-2]
+        latest_values = []
+        for doc in data:
+            try:
+                latest_values.append(float(doc[target]))
+            except (TypeError, ValueError, KeyError):
+                return None
+
         features = {}
         for i in range(count):
             # i=0 -> Lag_1 -> latest_values[0]
             features[f'{target}_lag_{i+1}'] = latest_values[i]
-            
+
         X_new = pd.DataFrame([features])
-        
-        # Ensure column order matches training (usually pandas sorts or keeps insertion order, but sklearn cares about order if dataframe)
-        # The training script:
-        # for i in range(1, lag_count + 1): df_ts[f'{target}_lag_{i}'] ...
-        # So columns are watt_lag_1, watt_lag_2, watt_lag_3
-        
+
+        # Ensure column order matches training
         X_new = X_new[[f'{target}_lag_{i}' for i in range(1, count + 1)]]
-        
+
         return X_new
-        
+
     except Exception as e:
         print(f"Database error: {e}", file=sys.stderr)
         return None
+    finally:
+        if client is not None:
+            client.close()
 
 def load_and_predict(model_filename, X_new):
     """Loads the trained model and makes a prediction."""
@@ -91,20 +123,34 @@ def load_and_predict(model_filename, X_new):
         print(f"Prediction error: {e}", file=sys.stderr)
         return None
 
-if __name__ == '__main__':
+
+def predict_latest(uri: str = None, collection_name: str = None) -> dict:
+    """Returns latest predictions for all targets as a JSON-serializable dict."""
     results = {}
-    
+
+    uri = uri or MONGO_URI
+    collection_name = collection_name or COLLECTION_NAME
+
     for target in TARGETS:
         model_filename = os.path.join(os.path.dirname(__file__), f"model_{target}.joblib")
-        X_new_features = get_latest_data_points(MONGO_URI, COLLECTION_NAME, target, LAG_COUNT)
-        
-        if X_new_features is not None:
-            prediction = load_and_predict(model_filename, X_new_features)
-            if prediction is not None:
-                results[target] = prediction
-    
+        X_new_features = get_latest_data_points(uri, collection_name, target, LAG_COUNT)
+
+        if X_new_features is None:
+            continue
+
+        prediction = load_and_predict(model_filename, X_new_features)
+        if prediction is None:
+            continue
+
+        results[target] = float(prediction)
+
+    return results
+
+if __name__ == '__main__':
+    results = predict_latest()
+
     if results:
         print(json.dumps(results))
         sys.exit(0)
-    else:
-        sys.exit(1)
+
+    sys.exit(1)

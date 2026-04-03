@@ -16,13 +16,59 @@ except ImportError:
 LAG_COUNT = 3
 TARGETS = ['watt', 'temperature', 'humidity']
 
+
+def resolve_collection_name(db, preferred: str) -> str:
+    """Best-effort resolution of collection name across common casing/pluralization variants."""
+    try:
+        existing = db.list_collection_names()
+    except Exception:
+        return preferred
+
+    candidates = []
+    for name in [
+        preferred,
+        preferred.lower(),
+        f"{preferred}s",
+        f"{preferred.lower()}s",
+    ]:
+        if name not in candidates:
+            candidates.append(name)
+
+    exact = [name for name in candidates if name in existing]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        best_name = exact[0]
+        best_count = -1
+        for name in exact:
+            try:
+                count = db[name].estimated_document_count()
+            except Exception:
+                count = 0
+            if count > best_count:
+                best_count = count
+                best_name = name
+        return best_name
+
+    preferred_lower = preferred.lower()
+    for name in existing:
+        if name.lower() == preferred_lower:
+            return name
+    for name in existing:
+        if name.lower() == f"{preferred_lower}s":
+            return name
+
+    return preferred
+
 def fetch_all_data_from_mongo(uri, collection_name):
     """Fetches all data from MongoDB into a time-series indexed DataFrame."""
+    client = None
     try:
         client = MongoClient(uri)
         # Parse DB name from URI if needed, or use default from connection string
         db = client.get_database()
-        collection = db[collection_name] 
+        resolved_name = resolve_collection_name(db, collection_name)
+        collection = db[resolved_name]
         
         # Check if collection exists/has data
         if collection.count_documents({}) == 0:
@@ -41,6 +87,9 @@ def fetch_all_data_from_mongo(uri, collection_name):
     except Exception as e:
         print(f"Error fetching data: {e}", file=sys.stderr)
         return pd.DataFrame()
+    finally:
+        if client is not None:
+            client.close()
 
 def train_and_save_model(df, target, lag_count, model_filename):
     """Trains the Ridge Regression model and saves it."""

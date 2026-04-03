@@ -3,4 +3,3 @@ venv
 .git
 .DS_Store
 .env
-backend/.env
